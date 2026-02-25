@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>24點求解器（離線）</title>
+  <style>
+    :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans TC", Arial, sans-serif; }
+    body { margin: 0; padding: 16px; background: #0b0c10; color: #e6e6e6; }
+    .card { max-width: 720px; margin: 0 auto; background: #15171c; border: 1px solid #2a2f3a; border-radius: 14px; padding: 16px; }
+    h1 { font-size: 18px; margin: 0 0 10px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    input[type="text"]{
+      flex: 1 1 220px;
+      padding: 12px 12px;
+      border-radius: 12px;
+      border: 1px solid #2a2f3a;
+      background: #0f1116;
+      color: #e6e6e6;
+      font-size: 16px;
+      outline: none;
+    }
+    button{
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid #2a2f3a;
+      background: #1f6feb;
+      color: white;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    button.secondary{
+      background: #222733;
+    }
+    .hint { color: #a9b1c3; font-size: 13px; line-height: 1.4; margin-top: 10px; }
+    pre{
+      margin-top: 14px;
+      padding: 12px;
+      border-radius: 12px;
+      background: #0f1116;
+      border: 1px solid #2a2f3a;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .pill { display:inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid #2a2f3a; color:#a9b1c3; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>24點求解器 <span class="pill">離線可用</span></h1>
+
+    <div class="row">
+      <input id="nums" type="text" placeholder="輸入四個數字，例如：7 8 9 12（用空格/逗號/點都行）" />
+      <button id="solveBtn">求解</button>
+      <button class="secondary" id="clearBtn">清除</button>
+    </div>
+
+    <div class="hint">
+      規則：四個數字各用一次，只用 + − × ÷ 與括號，目標 = 24。<br/>
+      輸入支援分隔符：空格、逗號、點（.）或連續多個分隔符都可。例：<b>2.4.8.10</b>
+    </div>
+
+    <pre id="out">輸入四個數字後按「求解」。</pre>
+  </div>
+
+<script>
+/** ---------- Exact Fraction using BigInt ---------- **/
+function bgcd(a, b) {
+  a = a < 0n ? -a : a;
+  b = b < 0n ? -b : b;
+  while (b !== 0n) { const t = a % b; a = b; b = t; }
+  return a;
+}
+class Frac {
+  constructor(n, d=1n) {
+    if (d === 0n) throw new Error("division by zero");
+    if (d < 0n) { n = -n; d = -d; }
+    const g = bgcd(n, d);
+    this.n = n / g;
+    this.d = d / g;
+  }
+  static fromInt(x) { return new Frac(BigInt(x), 1n); }
+  add(o){ return new Frac(this.n*o.d + o.n*this.d, this.d*o.d); }
+  sub(o){ return new Frac(this.n*o.d - o.n*this.d, this.d*o.d); }
+  mul(o){ return new Frac(this.n*o.n, this.d*o.d); }
+  div(o){
+    if (o.n === 0n) throw new Error("division by zero");
+    return new Frac(this.n*o.d, this.d*o.n);
+  }
+  eqInt(x){ return this.n === BigInt(x) * this.d; }
+  toString(){
+    if (this.d === 1n) return this.n.toString();
+    return `${this.n.toString()}/${this.d.toString()}`;
+  }
+}
+
+/** ---------- 24 Game Solver (full enumeration) ---------- **/
+function solve24(ints, target=24) {
+  const vals = ints.map(v => Frac.fromInt(v));
+  const exprs = ints.map(v => String(v));
+  const solutions = new Set();
+
+  function helper(vs, es) {
+    const n = vs.length;
+    if (n === 1) {
+      if (vs[0].eqInt(target)) solutions.add(es[0]);
+      return;
+    }
+    for (let i = 0; i < n; i++) {
+      for (let j = i+1; j < n; j++) {
+        const a = vs[i], b = vs[j];
+        const ea = es[i], eb = es[j];
+
+        const restV = [];
+        const restE = [];
+        for (let k = 0; k < n; k++) {
+          if (k !== i && k !== j) { restV.push(vs[k]); restE.push(es[k]); }
+        }
+
+        // candidates: +, *, a-b, b-a, a/b, b/a
+        const cand = [];
+        cand.push([a.add(b), `(${ea}+${eb})`]);
+        cand.push([a.mul(b), `(${ea}*${eb})`]);
+        cand.push([a.sub(b), `(${ea}-${eb})`]);
+        cand.push([b.sub(a), `(${eb}-${ea})`]);
+
+        // divisions guarded
+        try { cand.push([a.div(b), `(${ea}/${eb})`]); } catch {}
+        try { cand.push([b.div(a), `(${eb}/${ea})`]); } catch {}
+
+        for (const [nv, ne] of cand) {
+          helper(restV.concat([nv]), restE.concat([ne]));
+        }
+      }
+    }
+  }
+
+  helper(vals, exprs);
+  return Array.from(solutions).sort();
+}
+
+/** ---------- UI ---------- **/
+function parseFourInts(s) {
+  // allow space, comma, dot, multiple separators
+  const parts = s.trim().split(/[,\s.]+/).filter(Boolean);
+  if (parts.length !== 4) throw new Error("請輸入剛好四個數字。");
+  const ints = parts.map(p => {
+    if (!/^[+-]?\d+$/.test(p)) throw new Error(`無法解析：${p}`);
+    const x = Number(p);
+    if (!Number.isFinite(x) || !Number.isInteger(x)) throw new Error(`不是整數：${p}`);
+    return x;
+  });
+  return ints;
+}
+
+const $nums = document.getElementById("nums");
+const $out = document.getElementById("out");
+
+document.getElementById("solveBtn").addEventListener("click", () => {
+  try {
+    const ints = parseFourInts($nums.value);
+    const sols = solve24(ints, 24);
+    if (sols.length === 0) {
+      $out.textContent = `牌面：${ints.join(", ")}\n結果：無解（只用 + − × ÷ 且每張用一次）`;
+    } else {
+      const maxShow = 100;
+      const shown = sols.slice(0, maxShow);
+      $out.textContent =
+        `牌面：${ints.join(", ")}\n結果：有解 ✅\n解的數量（去重後）：${sols.length}\n\n` +
+        shown.join("\n") +
+        (sols.length > maxShow ? `\n\n...（僅顯示前 ${maxShow} 筆）` : "");
+    }
+  } catch (e) {
+    $out.textContent = `輸入錯誤：${e.message}`;
+  }
+});
+
+document.getElementById("clearBtn").addEventListener("click", () => {
+  $nums.value = "";
+  $out.textContent = "輸入四個數字後按「求解」。";
+  $nums.focus();
+});
+
+$nums.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter") document.getElementById("solveBtn").click();
+});
+</script>
+</body>
+</html>
